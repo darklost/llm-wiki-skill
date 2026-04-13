@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.1.0 (2026-04-13)
+
+### 新增
+
+- `scripts/validate-step1.sh`：ingest Step 1 JSON 格式验证脚本，检查必需字段和置信度值合法性
+- `templates/synthesis-template.md`：crystallize 结晶化页面模板
+- SKILL.md 置信度赋值规则：明确 EXTRACTED/INFERRED/AMBIGUOUS/UNVERIFIED 的判定标准
+- SKILL.md Step 1 验证流程：Step 1 完成后调用 validate-step1.sh，失败自动回退
+- SKILL.md 工作流 10 crystallize：对话内容沉淀为 wiki/synthesis/sessions/ 页面
+- SKILL.md 路由表：新增 crystallize 关键词路由
+
+### 改进
+
+- `scripts/init-wiki.sh`：创建 `wiki/synthesis/sessions/` 子目录和 `.gitignore`（排除 `.wiki-tmp/`）
+- `tests/regression.sh`：新增 9 个测试覆盖 validate-step1.sh 行为和 SKILL.md 内容锁定
+
 ## v2.0.0 (2026-04-11)
 
 ### 新增
