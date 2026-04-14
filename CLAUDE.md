@@ -36,3 +36,13 @@ bash install.sh --platform claude
 素材复用 `~/Desktop/llm-wiki-cowork-test/raw-input/` 里的 3 篇文章，不用每次重新找。
 
 codex 跑完后把 `test-report.md` 发回来，Claude Code 确认无阻塞问题后才执行 `git push`。
+
+## 推送前文档更新规则
+
+每次 commit 含功能改动（feat/fix）后、`git push` 前，**必须**主动检查并更新以下文档，不需要用户提醒：
+
+1. **CHANGELOG.md**：在顶部加新版本条目（日期、新增/改进/修复分类）
+2. **README.md 功能列表**：新增功能或行为变化时，在"功能"章节补一条
+3. **版本号**：如果改动涉及新功能，在 CHANGELOG 条目里用新版本号（按 v当前+1 递增）
+
+跳过条件：纯文档/排版/注释改动不需要更新。
