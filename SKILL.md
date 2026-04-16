@@ -291,7 +291,7 @@ bash ${SKILL_DIR}/scripts/adapter-state.sh classify-run <source_id> <exit_code> 
 > adapter-state.sh check 会把“提取器可用”与“是否存在 9222 可复用会话”分开表达。
 > 如果 check 返回 `available`，正常调用外挂；即使 detail 提示未检测到 9222，也继续执行。baoyu-url-to-markdown 会自己处理 Chrome 启动，**继续执行，不要等待用户确认**。
 > 只有在你想复用当前已登录的 Chrome 会话时，才需要手动开启 9222。
-> 如果提取仍然失败，提示用户：`open -na "Google Chrome" --args --remote-debugging-port=9222`
+> 如果提取仍然失败（通常是页面需要登录态，如 X/Twitter、知乎等），可提示用户开启调试端口复用已登录会话：`open -na "Google Chrome" --args --remote-debugging-port=9222`
 
 - 如果 `source_category=manual_only` → 不调用外挂，直接使用 `fallback_hint`
 - 如果 `adapter_name=wechat-article-to-markdown` → 执行 `wechat-article-to-markdown "<URL>"`
