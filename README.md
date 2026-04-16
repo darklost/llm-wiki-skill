@@ -21,7 +21,7 @@
 ## 前置条件
 
 - 核心主线前提：你的 agent 能执行 shell 命令，并能读写本地文件
-- 如果你要自动提取网页、X/Twitter 或知乎，Chrome 需要以调试模式启动
+- 如果你想让网页类提取复用当前已登录的 Chrome 会话，可以把 Chrome 以调试模式启动；未开启 9222 时，网页提取器仍会尝试自动拉起临时浏览器
 - 如果你要自动提取微信公众号或 YouTube 字幕，机器上需要有 `uv`
 - 如果你要启用网页提取依赖，`bun` 或 `npm` 二选一即可
 
@@ -169,7 +169,7 @@ bash install.sh --upgrade --platform <你的平台> --with-optional-adapters
 
 ### 为什么 X / Twitter 提取还是失败？
 
-X / Twitter 现在走 `baoyu-url-to-markdown`。如果还没启用可选提取器，先按当前平台重新运行安装命令，并追加 `--with-optional-adapters`。如果已经启用但仍然失败，通常是因为 Chrome 没有启动调试模式，或者当前 Chrome 会话没有登录 X。你也可以直接把内容复制粘贴给 agent 处理。
+X / Twitter 现在走 `baoyu-url-to-markdown`。如果还没启用可选提取器，先按当前平台重新运行安装命令，并追加 `--with-optional-adapters`。如果已经启用，默认情况下它会尝试自行拉起临时浏览器抓取页面；如果你需要复用自己当前已登录的 Chrome 会话，再手动开启 9222 调试端口。若提取仍然失败，常见原因是页面需要登录、当前会话权限不足，或页面本身返回了不完整内容。你也可以直接把内容复制粘贴给 agent 处理。
 
 ### 为什么公众号提取还是失败？
 
