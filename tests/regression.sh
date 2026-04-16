@@ -317,7 +317,7 @@ test_cache_script_handles_miss_hit_and_invalidate() {
     output="$(
         bash "$REPO_ROOT/scripts/cache.sh" check "$file_path" 2>&1
     )" || fail "cache.sh check should work for uncached files"
-    [ "$output" = "MISS" ] || fail "Expected initial cache check to be MISS"
+    [ "$output" = "MISS:no_entry" ] || fail "Expected initial cache check to be MISS:no_entry, got: $output"
 
     printf '# 来源页\n' > "$wiki_root/wiki/sources/example.md"
     bash "$REPO_ROOT/scripts/cache.sh" update "$file_path" "wiki/sources/example.md" > /dev/null 2>&1 \
@@ -326,7 +326,7 @@ test_cache_script_handles_miss_hit_and_invalidate() {
     output="$(
         bash "$REPO_ROOT/scripts/cache.sh" check "$file_path" 2>&1
     )" || fail "cache.sh check should work for cached files"
-    [ "$output" = "HIT" ] || fail "Expected updated cache check to be HIT"
+    [ "$output" = "HIT" ] || fail "Expected updated cache check to be HIT, got: $output"
 
     bash "$REPO_ROOT/scripts/cache.sh" invalidate "$file_path" > /dev/null 2>&1 \
         || fail "cache.sh invalidate should succeed"
@@ -334,7 +334,8 @@ test_cache_script_handles_miss_hit_and_invalidate() {
     output="$(
         bash "$REPO_ROOT/scripts/cache.sh" check "$file_path" 2>&1
     )" || fail "cache.sh check should work after invalidation"
-    [ "$output" = "MISS" ] || fail "Expected invalidated cache check to be MISS"
+    # 自愈：invalidate 后 source 页面仍存在，stem 匹配 → HIT(repaired)
+    [ "$output" = "HIT(repaired)" ] || fail "Expected invalidated cache check to be HIT(repaired), got: $output"
 }
 
 test_skill_md_phase2_init_mentions_purpose_and_cache() {
@@ -1002,6 +1003,159 @@ test_init_creates_synthesis_sessions_subdir() {
     assert_path_exists "$tmp_dir/wiki/wiki/synthesis/sessions"
 }
 
+test_create_source_page_writes_and_updates_cache() {
+    local tmp_dir wiki_root raw_file content_file output
+    tmp_dir="$(mktemp -d)"
+    trap 'rm -rf "$tmp_dir"' RETURN
+
+    wiki_root="$tmp_dir/wiki"
+    bash "$REPO_ROOT/scripts/init-wiki.sh" "$wiki_root" "缓存测试" "中文" > /dev/null
+
+    raw_file="$wiki_root/raw/articles/test-article.md"
+    printf '素材原始内容\n' > "$raw_file"
+
+    content_file="$tmp_dir/content.tmp"
+    printf '# 测试摘要页\n\n这是测试内容。\n' > "$content_file"
+
+    output="$(
+        bash "$REPO_ROOT/scripts/create-source-page.sh" "$raw_file" "wiki/sources/test-article.md" "$content_file" 2>&1
+    )" || fail "create-source-page.sh should succeed"
+    assert_text_contains "$output" "SUCCESS"
+
+    # 验证页面文件已写入
+    assert_path_exists "$wiki_root/wiki/sources/test-article.md"
+    assert_file_contains "$wiki_root/wiki/sources/test-article.md" "这是测试内容"
+
+    # 验证缓存已更新（check 返回 HIT）
+    output="$(
+        bash "$REPO_ROOT/scripts/cache.sh" check "$raw_file" 2>&1
+    )"
+    [ "$output" = "HIT" ] || fail "Expected HIT after create-source-page, got: $output"
+}
+
+test_create_source_page_rollback_on_cache_failure() {
+    local tmp_dir wiki_root raw_file content_file
+    tmp_dir="$(mktemp -d)"
+    trap 'rm -rf "$tmp_dir"' RETURN
+
+    wiki_root="$tmp_dir/wiki"
+    mkdir -p "$wiki_root/raw/articles" "$wiki_root/wiki/sources"
+    # 使用损坏的 cache 文件（不是合法 JSON），让 cache update 失败
+    printf 'not json\n' > "$wiki_root/.wiki-cache.json"
+    printf '# Schema\n' > "$wiki_root/.wiki-schema.md"
+
+    raw_file="$wiki_root/raw/articles/test-article.md"
+    printf '素材原始内容\n' > "$raw_file"
+
+    content_file="$tmp_dir/content.tmp"
+    printf '# 测试摘要页\n' > "$content_file"
+
+    bash "$REPO_ROOT/scripts/create-source-page.sh" "$raw_file" "wiki/sources/test-article.md" "$content_file" 2>/dev/null \
+        && fail "create-source-page.sh should fail when cache update fails"
+
+    # 验证页面文件已被回滚删除
+    [ ! -f "$wiki_root/wiki/sources/test-article.md" ] || fail "Output file should be rolled back on cache failure"
+}
+
+test_cache_check_self_heals_with_matching_stem() {
+    local tmp_dir wiki_root raw_file output
+    tmp_dir="$(mktemp -d)"
+    trap 'rm -rf "$tmp_dir"' RETURN
+
+    wiki_root="$tmp_dir/wiki"
+    bash "$REPO_ROOT/scripts/init-wiki.sh" "$wiki_root" "缓存测试" "中文" > /dev/null
+
+    raw_file="$wiki_root/raw/articles/rlhf-paper.md"
+    printf 'RLHF 论文内容\n' > "$raw_file"
+
+    # 直接写 source 页面（不通过脚本，模拟 AI 忘了 update）
+    printf '# RLHF 摘要\n' > "$wiki_root/wiki/sources/rlhf-paper.md"
+
+    # cache check 应该自愈
+    output="$(
+        bash "$REPO_ROOT/scripts/cache.sh" check "$raw_file" 2>&1
+    )"
+    [ "$output" = "HIT(repaired)" ] || fail "Expected HIT(repaired) for self-heal, got: $output"
+
+    # 再次 check 应返回普通 HIT
+    output="$(
+        bash "$REPO_ROOT/scripts/cache.sh" check "$raw_file" 2>&1
+    )"
+    [ "$output" = "HIT" ] || fail "Expected HIT after repair, got: $output"
+}
+
+test_cache_check_miss_no_source_when_page_deleted() {
+    local tmp_dir wiki_root raw_file output
+    tmp_dir="$(mktemp -d)"
+    trap 'rm -rf "$tmp_dir"' RETURN
+
+    wiki_root="$tmp_dir/wiki"
+    bash "$REPO_ROOT/scripts/init-wiki.sh" "$wiki_root" "缓存测试" "中文" > /dev/null
+
+    raw_file="$wiki_root/raw/articles/example.md"
+    printf '原始内容\n' > "$raw_file"
+
+    # 正常建 cache
+    printf '# 来源页\n' > "$wiki_root/wiki/sources/example.md"
+    bash "$REPO_ROOT/scripts/cache.sh" update "$raw_file" "wiki/sources/example.md" > /dev/null 2>&1
+
+    # 删掉 source 页面
+    rm "$wiki_root/wiki/sources/example.md"
+
+    output="$(
+        bash "$REPO_ROOT/scripts/cache.sh" check "$raw_file" 2>&1
+    )"
+    [ "$output" = "MISS:no_source" ] || fail "Expected MISS:no_source, got: $output"
+}
+
+test_cache_check_miss_hash_changed_when_content_differs() {
+    local tmp_dir wiki_root raw_file output
+    tmp_dir="$(mktemp -d)"
+    trap 'rm -rf "$tmp_dir"' RETURN
+
+    wiki_root="$tmp_dir/wiki"
+    bash "$REPO_ROOT/scripts/init-wiki.sh" "$wiki_root" "缓存测试" "中文" > /dev/null
+
+    raw_file="$wiki_root/raw/articles/example.md"
+    printf '原始内容 v1\n' > "$raw_file"
+
+    printf '# 来源页\n' > "$wiki_root/wiki/sources/example.md"
+    bash "$REPO_ROOT/scripts/cache.sh" update "$raw_file" "wiki/sources/example.md" > /dev/null 2>&1
+
+    # 修改素材内容
+    printf '原始内容 v2 已变化\n' > "$raw_file"
+
+    output="$(
+        bash "$REPO_ROOT/scripts/cache.sh" check "$raw_file" 2>&1
+    )"
+    [ "$output" = "MISS:hash_changed" ] || fail "Expected MISS:hash_changed, got: $output"
+}
+
+test_skill_md_ingest_uses_create_source_page() {
+    local section
+    section="$(sed -n '/## 工作流 2：ingest/,/## 工作流 3：batch-ingest/p' "$REPO_ROOT/SKILL.md")"
+
+    assert_text_contains "$section" "create-source-page.sh"
+    assert_text_contains "$section" "MISS:no_entry"
+    assert_text_contains "$section" "MISS:hash_changed"
+    assert_text_contains "$section" "MISS:no_source"
+    assert_text_contains "$section" "HIT(repaired)"
+}
+
+test_skill_md_step12_does_not_call_cache_update() {
+    local section step12
+    section="$(sed -n '/## 工作流 2：ingest/,/## 工作流 3：batch-ingest/p' "$REPO_ROOT/SKILL.md")"
+    step12="$(printf '%s' "$section" | sed -n '/^12\. \*\*更新 log\.md/,/^13\./p')"
+
+    # Step 12 不应包含可执行的 cache.sh update 代码块（只在说明文字里提到）
+    # 检查没有以 "bash" 开头并含 "cache.sh update" 的行
+    if printf '%s' "$step12" | grep -E 'bash.*cache\.sh update' > /dev/null; then
+        fail "Step 12 should not contain executable cache.sh update call"
+    fi
+    # 应提到缓存已由 create-source-page.sh 完成
+    assert_text_contains "$step12" "create-source-page.sh"
+}
+
 test_setup_runs_on_bash_3_2
 test_install_with_optional_adapters_bootstraps_dependencies
 test_install_dry_run_for_claude
@@ -1062,6 +1216,13 @@ test_validate_step1_empty_entities_array_passes
 test_skill_md_ingest_has_confidence_assignment_rules
 test_skill_md_has_crystallize_workflow_and_route
 test_init_creates_synthesis_sessions_subdir
+test_create_source_page_writes_and_updates_cache
+test_create_source_page_rollback_on_cache_failure
+test_cache_check_self_heals_with_matching_stem
+test_cache_check_miss_no_source_when_page_deleted
+test_cache_check_miss_hash_changed_when_content_differs
+test_skill_md_ingest_uses_create_source_page
+test_skill_md_step12_does_not_call_cache_update
 
 bash "$REPO_ROOT/tests/adapter-state.sh" || fail "adapter-state.sh 测试失败"
 
